@@ -478,6 +478,11 @@ function attemptSilentSignIn(){
   }
   autoAttemptPending = true;
   document.getElementById('gate-loader').style.display = 'block';
+  setTimeout(() => {
+    if (autoAttemptPending && !accessToken){
+      showSignInButton();
+    }
+  }, 3500);
   tokenClient.requestAccessToken({ prompt: '', hint: lastAccount });
 }
 
