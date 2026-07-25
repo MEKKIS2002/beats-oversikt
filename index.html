@@ -445,8 +445,36 @@ const audio = document.getElementById('audio');
    AUTH
    ===================================================================== */
 const LAST_ACCOUNT_KEY = 'beats_last_account';
+const TOKEN_CACHE_KEY = 'beats_token_cache';
 let tokenRefreshTimer = null;
 let autoAttemptPending = false;
+
+function cacheToken(resp){
+  try{
+    localStorage.setItem(TOKEN_CACHE_KEY, JSON.stringify({
+      token: resp.access_token,
+      expiresAt: Date.now() + (resp.expires_in || 3600) * 1000
+    }));
+  }catch(e){}
+}
+
+function readCachedToken(){
+  try{
+    const raw = localStorage.getItem(TOKEN_CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data && data.token && data.expiresAt - Date.now() > 60000){
+      return data;
+    }
+  }catch(e){}
+  return null;
+}
+
+function clearTokenCache(){
+  localStorage.removeItem(TOKEN_CACHE_KEY);
+}
+
+let cachedAttempt = false;
 
 function initGoogle(){
   tokenClient = google.accounts.oauth2.initTokenClient({
@@ -465,10 +493,21 @@ function initGoogle(){
         return;
       }
       accessToken = resp.access_token;
+      cacheToken(resp);
       scheduleTokenRefresh(resp.expires_in);
       onSignedIn();
     }
   });
+
+  const cached = readCachedToken();
+  if (cached){
+    accessToken = cached.token;
+    cachedAttempt = true;
+    scheduleTokenRefresh((cached.expiresAt - Date.now()) / 1000);
+    onSignedIn();
+    return;
+  }
+
   attemptSilentSignIn();
 }
 
@@ -520,6 +559,7 @@ document.getElementById('signin-btn').addEventListener('click', () => {
 document.getElementById('signout-btn').addEventListener('click', () => {
   if (tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
   localStorage.removeItem(LAST_ACCOUNT_KEY);
+  clearTokenCache();
   if (accessToken){
     google.accounts.oauth2.revoke(accessToken, () => {});
   }
@@ -547,7 +587,11 @@ async function onSignedIn(){
     document.getElementById('app').classList.add('ready');
   }catch(err){
     console.error(err);
-    if (autoAttemptPending){
+    if (cachedAttempt){
+      cachedAttempt = false;
+      clearTokenCache();
+      attemptSilentSignIn();
+    } else if (autoAttemptPending){
       showSignInButton();
     } else {
       showGateError('Klarte ikke å hente data fra Drive: ' + err.message);
