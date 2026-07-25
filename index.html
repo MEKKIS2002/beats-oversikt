@@ -110,6 +110,7 @@
   .folder-row .chevron.open{ transform:rotate(90deg); }
   .folder-row .chevron.hidden{ visibility:hidden; }
   .folder-row .fname{ overflow:hidden; text-overflow:ellipsis; }
+  .folder-row .fdot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
   .folder-row .count{ margin-left:auto; font-size:10.5px; color:var(--text-tertiary); font-family:'JetBrains Mono',monospace; }
   .folder-children{ margin-left:14px; border-left:1px solid var(--border); padding-left:2px; }
   .folder-children.collapsed{ display:none; }
@@ -201,7 +202,9 @@
   .t-textwrap{ min-width:0; }
   .t-title{ font-size:13.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .t-loading{ font-size:11px; color:var(--accent); margin-top:1px; }
-  .t-folder{ font-size:12.5px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .t-folder{ font-size:12.5px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:7px; }
+  .folder-dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .folder-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .t-date{ font-size:12px; color:var(--text-secondary); font-family:'JetBrains Mono',monospace; }
   .t-dur{ font-size:12px; color:var(--text-tertiary); font-family:'JetBrains Mono',monospace; text-align:right; }
 
@@ -416,6 +419,9 @@ const ROOT_FOLDER_ID = '1-zNhuffZk_Sp87c7FVIifeIxQTNVKLuZ';
 const ROOT_FOLDER_NAME = 'beats';
 const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
 const AUDIO_EXT = /\.(mp3|wav|aiff|aif|m4a|flac|ogg|opus|wma)$/i;
+const FOLDER_PALETTE = ['#F2B84B','#E8735D','#7C9EFF','#E85DA6','#B98CF2','#5DC8E8','#C9E85D','#F2905D','#9BE85D','#5D8CF2'];
+const NEUTRAL_FOLDER_COLOR = '#6b6b70';
+let paletteIndex = 0;
 
 /* =====================================================================
    STATE
@@ -613,20 +619,28 @@ async function loadLibrary(){
   }
 
   folderTree = { id: rootFolderId, name: rootName, path: [], children: [], parentId: null };
+  paletteIndex = 0;
 
-  await walkFolder(folderTree);
+  await walkFolder(folderTree, NEUTRAL_FOLDER_COLOR);
   renderFolderTree();
   setView('__all__');
   toggleRefresh(false);
 }
 
-async function walkFolder(node){
+async function walkFolder(node, topColor){
   const children = await listChildren(node.id);
   for (const f of children){
     if (isFolder(f)){
-      const childNode = { id: f.id, name: f.name, path: [...node.path, f.name], children: [], parentId: node.id };
+      let childColor;
+      if (node.id === rootFolderId){
+        childColor = FOLDER_PALETTE[paletteIndex % FOLDER_PALETTE.length];
+        paletteIndex++;
+      } else {
+        childColor = topColor;
+      }
+      const childNode = { id: f.id, name: f.name, path: [...node.path, f.name], children: [], parentId: node.id, color: childColor };
       node.children.push(childNode);
-      await walkFolder(childNode);
+      await walkFolder(childNode, childColor);
     } else if (isAudioFile(f)){
       const isRoot = node.id === rootFolderId;
       allTracks.push({
@@ -636,7 +650,8 @@ async function walkFolder(node){
         createdTime: f.createdTime,
         folderId: node.id,
         folderName: isRoot ? folderTree.name : node.name,
-        folderPath: node.path.length ? node.path.join(' / ') : folderTree.name
+        folderPath: node.path.length ? node.path.join(' / ') : folderTree.name,
+        color: isRoot ? NEUTRAL_FOLDER_COLOR : topColor
       });
       node.trackCount = (node.trackCount || 0) + 1;
     }
@@ -691,6 +706,12 @@ function renderFolderNode(node, depth){
   countSpan.textContent = countAllTracks(node);
 
   row.appendChild(chevron);
+  if (node.color){
+    const dot = document.createElement('span');
+    dot.className = 'fdot';
+    dot.style.background = node.color;
+    row.appendChild(dot);
+  }
   row.appendChild(nameSpan);
   row.appendChild(countSpan);
   wrap.appendChild(row);
@@ -846,7 +867,7 @@ function buildTrackRow(track, i){
 
   const folderCol = document.createElement('div');
   folderCol.className = 't-folder';
-  folderCol.textContent = track.folderPath;
+  folderCol.innerHTML = `<span class="folder-dot" style="background:${track.color || NEUTRAL_FOLDER_COLOR}"></span><span class="folder-text">${escapeHtml(track.folderPath)}</span>`;
 
   const dateCol = document.createElement('div');
   dateCol.className = 't-date';
