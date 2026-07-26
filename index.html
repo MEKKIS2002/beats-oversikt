@@ -639,6 +639,16 @@ try{ trackNotes = JSON.parse(localStorage.getItem(NOTES_KEY) || '{}'); }catch(e)
 let queue = []; // array of track objects, played before normal next-logic
 const VERSION_RE = /\b(v\d+|remix|rework|alt|final|master|edit)\b/i;
 
+function detectVersion(rawName){
+  const nameNoExt = stripExt(rawName);
+  const withoutBpm = nameNoExt.replace(BPM_RE, '').trim();
+  const wordMatch = withoutBpm.match(VERSION_RE);
+  if (wordMatch) return wordMatch[1].toUpperCase();
+  const trailingNum = withoutBpm.match(/(?:^|[\s_-])(\d{1,2})$/);
+  if (trailingNum) return 'V' + trailingNum[1];
+  return null;
+}
+
 /* =====================================================================
    STATE
    ===================================================================== */
@@ -1285,7 +1295,7 @@ function buildTrackRow(track, i){
   const titleWrap = document.createElement('div');
   titleWrap.className = 't-title-wrap';
   const isFav = favorites.has(track.id);
-  const versionMatch = track.rawName.match(VERSION_RE);
+  const versionLabel = detectVersion(track.rawName);
   const hasNote = !!trackNotes[track.id];
   titleWrap.innerHTML = `
     <span class="fav-star${isFav ? ' active' : ''}" data-fav-id="${track.id}" title="Favoritt">
@@ -1295,7 +1305,7 @@ function buildTrackRow(track, i){
     <div class="t-textwrap">
       <div class="t-title" style="display:flex; align-items:center; min-width:0;">
         <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex-shrink:1;">${highlightMatch(track.name, currentSearchQuery)}</span>
-        ${versionMatch ? `<span class="version-badge">${escapeHtml(versionMatch[1])}</span>` : ''}
+        ${versionLabel ? `<span class="version-badge">${escapeHtml(versionLabel)}</span>` : ''}
         ${hasNote ? `<span class="note-indicator" title="${escapeHtml(trackNotes[track.id])}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v12H8l-4 4z"/></svg></span>` : ''}
       </div>
       <div class="t-loading" style="display:none;">Laster…</div>
