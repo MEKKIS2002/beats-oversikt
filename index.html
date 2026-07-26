@@ -160,7 +160,7 @@
   .folder-meta{ font-size:12.5px; color:var(--text-tertiary); margin-top:5px; }
 
   .sort-row{
-    display:grid; grid-template-columns: 32px 1fr 190px 60px 130px 64px;
+    display:grid; grid-template-columns: 32px 1fr 175px 50px 66px 115px 60px;
     gap:14px; padding:0 32px 8px; margin-top:8px;
     font-size:10.5px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.06em;
     border-bottom:1px solid var(--border);
@@ -172,7 +172,7 @@
 
   .track-list{ padding:2px 20px 130px; }
   .track-row{
-    display:grid; grid-template-columns: 32px 1fr 190px 60px 130px 64px;
+    display:grid; grid-template-columns: 32px 1fr 175px 50px 66px 115px 60px;
     gap:14px; align-items:center;
     padding:9px 12px; border-radius:6px; cursor:pointer;
     transition:background .1s;
@@ -435,7 +435,7 @@
   .bar-count{ font-size:11.5px; color:var(--text-secondary); width:28px; text-align:right; font-family:'JetBrains Mono',monospace; }
 
   .skel-row{
-    display:grid; grid-template-columns: 32px 1fr 190px 60px 130px 64px;
+    display:grid; grid-template-columns: 32px 1fr 175px 50px 66px 115px 60px;
     gap:14px; align-items:center; padding:9px 12px;
   }
   .skel-block{
@@ -444,12 +444,37 @@
     background-size:200% 100%; animation:skel 1.4s ease-in-out infinite;
   }
   @keyframes skel{ 0%{ background-position:200% 0; } 100%{ background-position:-200% 0; } }
+
+  .t-rating{ display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .t-rating svg{ display:block; }
+  .t-rating.empty{ opacity:0.35; }
+  .t-rating:hover{ opacity:1; }
+
+  .rating-popover{
+    position:fixed; z-index:60; background:var(--bg-elevated); border:1px solid var(--border);
+    border-radius:10px; padding:10px; box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    display:none;
+  }
+  .rating-popover.show{ display:block; }
+  .rating-popover-row{ display:flex; gap:5px; }
+  .die-btn{
+    background:none; border:1px solid transparent; border-radius:6px; padding:3px;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .die-btn:hover{ background:var(--bg-elevated-hover); }
+  .die-btn.active{ border-color:var(--accent-dim); background:var(--accent-wash); }
+  .rating-clear{
+    margin-top:8px; font-size:11.5px; color:var(--text-tertiary); text-align:center;
+    cursor:pointer; padding:5px; border-radius:6px;
+  }
+  .rating-clear:hover{ color:var(--danger); background:var(--bg-elevated-hover); }
 </style>
 </head>
 <body>
 
 <div id="toast"></div>
 <div class="ctx-menu" id="ctx-menu"></div>
+<div class="rating-popover" id="rating-popover"></div>
 
 <!-- Sign-in gate -->
 <div id="gate">
@@ -541,6 +566,7 @@
         <div id="sort-title" data-key="name">Tittel <span class="sort-arrow">▲</span></div>
         <div id="sort-folder" data-key="folder">Mappe <span class="sort-arrow">▲</span></div>
         <div id="sort-bpm" data-key="bpm" style="justify-content:center;">BPM <span class="sort-arrow">▲</span></div>
+        <div id="sort-rating" data-key="rating" style="justify-content:center;">Rating <span class="sort-arrow">▲</span></div>
         <div id="sort-date" class="sorted" data-key="date">Lagt til <span class="sort-arrow">▼</span></div>
         <div style="text-align:right; justify-content:flex-end;">Varighet</div>
       </div>
@@ -638,6 +664,69 @@ try{ trackNotes = JSON.parse(localStorage.getItem(NOTES_KEY) || '{}'); }catch(e)
 
 let queue = []; // array of track objects, played before normal next-logic
 const VERSION_RE = /\b(v\d+|remix|rework|alt|final|master|edit)\b/i;
+
+const RATINGS_KEY = 'beats_ratings';
+let ratings = {};
+try{ ratings = JSON.parse(localStorage.getItem(RATINGS_KEY) || '{}'); }catch(e){}
+
+const DIE_DOTS = {
+  1: [[12,12]],
+  2: [[7,7],[17,17]],
+  3: [[7,7],[12,12],[17,17]],
+  4: [[7,7],[17,7],[7,17],[17,17]],
+  5: [[7,7],[17,7],[12,12],[7,17],[17,17]],
+  6: [[7,7],[17,7],[7,12],[17,12],[7,17],[17,17]]
+};
+function dieFaceSvg(n, size, color){
+  const dots = DIE_DOTS[n] || [];
+  const dotsHtml = dots.map(([x,y]) => `<circle cx="${x}" cy="${y}" r="2.3" fill="${color}"/>`).join('');
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24"><rect x="1.5" y="1.5" width="21" height="21" rx="5" fill="none" stroke="${color}" stroke-width="1.6"/>${dotsHtml}</svg>`;
+}
+
+function setRating(trackId, value){
+  if (value === null || value === 0){
+    delete ratings[trackId];
+  } else {
+    ratings[trackId] = value;
+  }
+  try{ localStorage.setItem(RATINGS_KEY, JSON.stringify(ratings)); }catch(e){}
+  applyFilterAndRender();
+}
+
+function openRatingPopover(x, y, track){
+  const pop = document.getElementById('rating-popover');
+  const current = ratings[track.id] || 0;
+  let html = '<div class="rating-popover-row">';
+  for (let i = 1; i <= 6; i++){
+    const isActive = current === i;
+    html += `<button class="die-btn${isActive ? ' active' : ''}" data-val="${i}">${dieFaceSvg(i, 22, isActive ? 'var(--accent)' : 'var(--text-secondary)')}</button>`;
+  }
+  html += '</div>';
+  if (current){
+    html += `<div class="rating-clear" data-val="0">Fjern vurdering</div>`;
+  }
+  pop.innerHTML = html;
+  pop.querySelectorAll('.die-btn, .rating-clear').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const val = parseInt(btn.dataset.val, 10);
+      setRating(track.id, val === 0 ? null : val);
+      closeRatingPopover();
+    });
+  });
+  pop.style.left = '0px';
+  pop.style.top = '0px';
+  pop.classList.add('show');
+  const rect = pop.getBoundingClientRect();
+  const maxX = window.innerWidth - rect.width - 8;
+  const maxY = window.innerHeight - rect.height - 8;
+  pop.style.left = Math.min(x, maxX) + 'px';
+  pop.style.top = Math.min(y, maxY) + 'px';
+}
+
+function closeRatingPopover(){
+  document.getElementById('rating-popover').classList.remove('show');
+}
 
 function detectVersion(rawName){
   const nameNoExt = stripExt(rawName);
@@ -1147,6 +1236,10 @@ function applyFilterAndRender(){
       av = a.bpm === null ? -Infinity : a.bpm;
       bv = b.bpm === null ? -Infinity : b.bpm;
     }
+    else if (sortKey === 'rating'){
+      av = ratings[a.id] || 0;
+      bv = ratings[b.id] || 0;
+    }
     else { av = new Date(a.createdTime).getTime(); bv = new Date(b.createdTime).getTime(); }
     if (av < bv) return -1 * sortDir;
     if (av > bv) return 1 * sortDir;
@@ -1230,6 +1323,7 @@ function renderSkeleton(){
         <div class="skel-block" style="width:16px; height:16px; border-radius:50%;"></div>
         <div class="skel-block" style="width:${60 + Math.random()*30}%;"></div>
         <div class="skel-block" style="width:70%;"></div>
+        <div class="skel-block" style="width:24px; margin:0 auto;"></div>
         <div class="skel-block" style="width:24px; margin:0 auto;"></div>
         <div class="skel-block" style="width:60%;"></div>
         <div class="skel-block" style="width:32px; margin-left:auto;"></div>
@@ -1338,6 +1432,19 @@ function buildTrackRow(track, i){
   bpmCol.className = 't-bpm';
   bpmCol.textContent = track.bpm ? track.bpm : '—';
 
+  const ratingCol = document.createElement('div');
+  const currentRating = ratings[track.id] || 0;
+  ratingCol.className = 't-rating' + (currentRating ? '' : ' empty');
+  ratingCol.title = currentRating ? `Terningkast: ${currentRating}` : 'Gi terningkast';
+  ratingCol.innerHTML = dieFaceSvg(currentRating || 1, 18, currentRating ? 'var(--accent)' : 'var(--text-tertiary)');
+  if (!currentRating){
+    ratingCol.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24"><rect x="1.5" y="1.5" width="21" height="21" rx="5" fill="none" stroke="var(--text-tertiary)" stroke-width="1.6"/></svg>`;
+  }
+  ratingCol.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openRatingPopover(e.clientX, e.clientY, track);
+  });
+
   const dateCol = document.createElement('div');
   dateCol.className = 't-date';
   dateCol.textContent = formatDate(track.createdTime);
@@ -1351,6 +1458,7 @@ function buildTrackRow(track, i){
   row.appendChild(titleWrap);
   row.appendChild(folderCol);
   row.appendChild(bpmCol);
+  row.appendChild(ratingCol);
   row.appendChild(dateCol);
   row.appendChild(durCol);
 
@@ -1501,6 +1609,7 @@ function openContextMenu(x, y, track){
     <div class="ctx-item" data-act="add-queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h6"/><path d="M17 15v6M14 18h6"/></svg>Legg til i kø</div>
     <div class="ctx-sep"></div>
     <div class="ctx-item" data-act="fav"><svg viewBox="0 0 24 24" fill="${isFav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>${isFav ? 'Fjern favoritt' : 'Legg til favoritt'}</div>
+    <div class="ctx-item" data-act="rating">${dieFaceSvg(ratings[track.id] || 3, 14, 'currentColor')}Gi terningkast</div>
     <div class="ctx-item" data-act="note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v12H8l-4 4z"/></svg>${trackNotes[track.id] ? 'Rediger notat' : 'Legg til notat'}</div>
     <div class="ctx-sep"></div>
     <div class="ctx-item" data-act="download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Last ned</div>
@@ -1511,6 +1620,7 @@ function openContextMenu(x, y, track){
   menu.querySelector('[data-act="play-next"]').addEventListener('click', () => { addToQueue(track, true); closeContextMenu(); });
   menu.querySelector('[data-act="add-queue"]').addEventListener('click', () => { addToQueue(track, false); closeContextMenu(); });
   menu.querySelector('[data-act="fav"]').addEventListener('click', () => { toggleFavorite(track.id, null); renderTrackList(); closeContextMenu(); });
+  menu.querySelector('[data-act="rating"]').addEventListener('click', () => { closeContextMenu(); openRatingPopover(x, y, track); });
   menu.querySelector('[data-act="note"]').addEventListener('click', () => { editNote(track); closeContextMenu(); });
   menu.querySelector('[data-act="download"]').addEventListener('click', () => { downloadTrack(track); closeContextMenu(); });
   menu.querySelector('[data-act="copy-link"]').addEventListener('click', () => { copyShareLink(track.id); closeContextMenu(); });
@@ -1533,9 +1643,10 @@ function closeContextMenu(){
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#ctx-menu')) closeContextMenu();
   if (!e.target.closest('.queue-wrap')) document.getElementById('queue-panel').classList.remove('show');
+  if (!e.target.closest('#rating-popover') && !e.target.closest('.t-rating')) closeRatingPopover();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeContextMenu();
+  if (e.key === 'Escape'){ closeContextMenu(); closeRatingPopover(); }
 });
 
 function formatDate(iso){
@@ -1782,9 +1893,9 @@ document.getElementById('refresh-btn').addEventListener('click', async () => {
 });
 
 document.getElementById('export-btn').addEventListener('click', () => {
-  const rows = [['Tittel','Mappe','BPM','Lagt til']];
+  const rows = [['Tittel','Mappe','BPM','Terningkast','Lagt til']];
   visibleTracks.forEach(t => {
-    rows.push([t.name, t.folderPath, t.bpm || '', formatDate(t.createdTime)]);
+    rows.push([t.name, t.folderPath, t.bpm || '', ratings[t.id] || '', formatDate(t.createdTime)]);
   });
   const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
